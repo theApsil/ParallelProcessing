@@ -3,6 +3,5 @@
 
 Запуск:
 ```
-cd ./parallel_mod
 rm ./bin/run && make && ./bin/run
 ```
