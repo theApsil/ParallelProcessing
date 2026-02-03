@@ -5,24 +5,15 @@
 #include <unistd.h>
 #include <time.h>
 
-#define N (1u << 27)
 
-#define MEASURE(func_name, func_call) \
-    do { \
-        double t0 = omp_get_wtime(); \
-        double res = func_call; \
-        double t1 = omp_get_wtime(); \
-        printf("%-35s %8.4f с | результат: %.6f \n", \
-            func_name, t1 - t0, res); \
-    } while(0)
-
+#define N (1u<<27)
 
 #define SPEEDTEST(func, n, exp) \
     speedtest_avg_openmp(#func, func, n, exp)
 
 void speedtest_avg_openmp(
     const char* name,
-    double (*func)(const double*, size_t),
+    double (*func)(const double*, unsigned int),
     size_t n,
     size_t exp_count
 ) {
@@ -95,61 +86,54 @@ void speedtest_avg_openmp(
 }
 
 
-double avg(const double* v, size_t n) {
+double avg(const double* numbers, unsigned int n) {
     double sum = 0.0;
 
-    for (size_t i = 0; i < n; i++) {
-        sum += v[i];
+    for (unsigned int i = 0; i < n; i++) {
+        sum += numbers[i];
     }
 
     return sum / n;
 }
 
-double avg_omp_reduction(const double* v, size_t n) {
+double avg_reduction(const double* numbers, unsigned int n) {
     double sum = 0.0;
-    
     #pragma omp parallel for reduction(+:sum)
-    for (size_t i = 0; i < n; i++) {
-        sum += v[i];
+    for (unsigned int i = 0; i < n; i++) {
+        sum += numbers[i];
+    }
+
+    return sum / n;
+}
+
+double avg_omp_parallel(const double* numbers, unsigned int n) {
+    double sum = 0.0;
+    #pragma omp parallel 
+    {
+        size_t t = omp_get_thread_num(), T = omp_get_num_threads();
+        size_t S = (n / T);
+        size_t B = n % T;
+
+        if (t < B){
+            B = (S++) * t;
+        } else {
+            B += S * t;
+        }
+        double output = 0.0;
+        for (size_t i = B; i < B + S; i++) {
+            output += numbers[i];
+        }
+        #pragma omp critical 
+        {
+            sum += output;
+        }
+        
     }
     
     return sum / n;
 }
 
-double avg_omp_parallel(const double* v, size_t n) {
-    double sum = 0;
-
-    #pragma omp parallel
-    {
-        size_t t = omp_get_thread_num();
-        size_t T = omp_get_num_threads();
-
-        size_t base = n / T;  
-        size_t remainder = n % T;
-        
-        size_t start, size;
-        
-        if (t < remainder) {
-            size = base + 1;
-            start = t * size;
-        } else {
-            size = base;
-            start = remainder * (base + 1) + (t - remainder) * base;
-        }
-
-        double local_sum = 0;
-        for (size_t i = start; i < start + size; i++) {
-            local_sum += v[i];
-        }
-
-        #pragma omp critical
-        sum += local_sum;
-    }
-
-    return sum / n;
-}
-
-double avg_omp_parallel_optimized(const double* v, size_t n) {
+double avg_omp_parallel_optimized(const double* v, unsigned int  n) {
     unsigned P = omp_get_num_procs();
 
     double* r = malloc(P * sizeof(double));
@@ -189,7 +173,7 @@ struct sum_t {
     char padding[64 - sizeof(double)];
 };
 
-double avg_omp_with_cache_optimizing(const double* v, size_t n) {
+double avg_omp_with_cache_optimizing(const double* v, unsigned int n) {
     unsigned P = omp_get_num_procs();
     struct sum_t* r = calloc(P, sizeof(struct sum_t));
 
@@ -225,22 +209,10 @@ double avg_omp_with_cache_optimizing(const double* v, size_t n) {
     return total_r / n;
 }
 
-int main() {
-    // double* p = (double*)malloc(N * sizeof(double));
 
-    // for (size_t i = 0; i < N; i++) {
-    //     p[i] = i;
-    // }
+int main(){
 
-    // MEASURE("Последовательная (avg)", avg(p, N));
-    // MEASURE("OpenMP reduction", avg_omp_reduction(p, N));
-    // MEASURE("OpenMP basic parallelism", avg_omp_parallel(p, N));
-    // MEASURE("OpenMP optimized parallelism", avg_omp_parallel_optimized(p, N));
-    // MEASURE("OpenMP + cache optimizing", avg_omp_with_cache_optimizing(p, N));
-
-    // free(p);
-
-    SPEEDTEST(avg_omp_reduction, N, 5);
+    SPEEDTEST(avg_reduction, N, 5);
     SPEEDTEST(avg_omp_parallel, N, 5);
     SPEEDTEST(avg_omp_parallel_optimized, N, 5);
     SPEEDTEST(avg_omp_with_cache_optimizing, N, 5);
